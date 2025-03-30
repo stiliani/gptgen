@@ -11,7 +11,7 @@ import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 
 @WebServlet("/login")
-public class LoginServlet extends HttpServlet{
+public class LoginController extends HttpServlet{
     protected void doPost(HttpServletRequest request, HttpServletResponse response)
             throws ServletException, IOException {
         String email = request.getParameter("email");
@@ -28,7 +28,8 @@ public class LoginServlet extends HttpServlet{
             session.setAttribute("password", user.getPassword());
             response.sendRedirect("index.jsp");
         } else {
-            response.sendRedirect("login.jsp?error=invalid");
+            request.setAttribute("loginError", "Falsche E-Mail oder falsches Passwort.");
+            request.getRequestDispatcher("login.jsp").forward(request, response);
         }
     }
 }

@@ -1,8 +1,5 @@
 package com.example.gptgen.controller;
 
-import com.example.gptgen.model.User;
-import com.example.gptgen.model.PromptDAO;
-import com.example.gptgen.view.TitleGenerator;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
@@ -10,93 +7,154 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
-import com.example.gptgen.service.CodeGenerator;
-import com.example.gptgen.service.CodeReviewer;
 import org.json.JSONObject;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
-import java.io.IOException;
+import java.io.*;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.logging.Logger;
 
 @WebServlet("/chat")
-public class ChatServlet extends HttpServlet {
+public class ChatController extends HttpServlet {
 
-    private static final String DB_URL = "jdbc:mysql://localhost:3306/deine_datenbank";
-    private static final String DB_USER = "dein_benutzer";
-    private static final String DB_PASSWORD = "dein_passwort";
+    private static final String API_URL = "https://api.openai.com/v1/chat/completions";
+    private static final String SECRET_KEY = "";
+    private static final String DB_URL = "jdbc:mysql://localhost:3306/gptgenlogin"; // Ersetzen
+    private static final String DB_USER = "root"; // Ersetzen
+    private static final String DB_PASSWORD = ""; // Ersetzen
 
+    @Override
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         String action = request.getParameter("action");
+        String userMessage = request.getParameter("message");
+        String model = request.getParameter("model");
+        Logger logger = Logger.getLogger(ChatController.class.getName());
+        HttpSession session = request.getSession(false);
+        String username = (session != null && session.getAttribute("username") != null) ? (String) session.getAttribute("username") : "anonymous";
 
-        if ("generate".equals(action)) {
-            HttpSession session = request.getSession(false);
-            if (session != null && session.getAttribute("username") != null) {
-                String username = (String) session.getAttribute("username");
-                String message = request.getParameter("message");
-                String responseMessage = (String) request.getAttribute("responseMessage");
+        if (action == null || action.isEmpty()) {
+            sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST, "Aktion fehlt.");
+            return;
+        }
 
-                // Titel aus den ersten 5 Wörtern erstellen
-                String title = createTitle(message);
+        if (userMessage == null || userMessage.isEmpty()) {
+            sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST, "Nachricht fehlt.");
+            return;
+        }
 
-                // Benutzer-ID aus der Datenbank abrufen
-                int userId = getUserId(username);
-
-                // Daten in der Datenbank speichern
-                if (userId != -1) {
-                    saveMessage(userId, title, message, responseMessage);
-                } else {
-                    System.err.println("Benutzer-ID nicht gefunden.");
-                }
+        String result;
+        try {
+            if ("generate".equals(action)) {
+                result = generateCode(userMessage, model);
+            } else {
+                sendErrorResponse(response, HttpServletResponse.SC_BAD_REQUEST, "Ungültige Aktion.");
+                return;
             }
-        }
 
-        request.getRequestDispatcher("chat.jsp").forward(request, response);
-    }
+            Logger.getLogger(ChatController.class.getName()).info("saveChatLog wird aufgerufen...");
+            // Daten in die Datenbank speichern und Erfolg prüfen
+            boolean savedSuccessfully = saveChatLog(username, userMessage, result, model);
 
-    private String createTitle(String message) {
-        String[] words = message.split("\\s+");
-        StringBuilder title = new StringBuilder();
-        for (int i = 0; i < Math.min(5, words.length); i++) {
-            title.append(words[i]).append(" ");
-        }
-        return title.toString().trim() + "...";
-    }
-
-    private int getUserId(String username) {
-        int userId = -1;
-        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
-             PreparedStatement stmt = conn.prepareStatement("SELECT id FROM users WHERE username = ?")) {
-            stmt.setString(1, username);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    userId = rs.getInt("id");
-                }
+            if (savedSuccessfully) {
+                response.setContentType("text/plain;charset=UTF-8");
+                response.getWriter().write(result);
+            } else {
+                // Fehlermeldung an den Benutzer senden
+                sendErrorResponse(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Fehler beim Speichern der Daten.");
             }
-        } catch (SQLException e) {
+
+        } catch (Exception e) {
             e.printStackTrace();
+            sendErrorResponse(response, HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Ein interner Fehler ist aufgetreten.");
         }
-        return userId;
     }
 
-    private void saveMessage(int userId, String title, String message, String responseMessage) {
-        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
-             PreparedStatement stmt = conn.prepareStatement("INSERT INTO messages (user_id, title, question, answer) VALUES (?, ?, ?, ?)")) {
-            stmt.setInt(1, userId);
-            stmt.setString(2, title);
-            stmt.setString(3, message);
-            stmt.setString(4, responseMessage);
-            stmt.executeUpdate();
+    private String generateCode(String userMessage, String model) throws IOException {
+        String systemMessage = "Du bist ein Code-Generator.";
+        return sendOpenAIRequest(systemMessage, userMessage, model);
+    }
+
+    private String sendOpenAIRequest(String systemMessage, String userMessage, String model) throws IOException {
+        String jsonBody = String.format("""
+        {
+            "model": "%s",
+            "messages": [
+                {"role": "system", "content": "%s"},
+                {"role": "user", "content": "%s"}
+            ]
+        }
+        """, model, systemMessage, userMessage);
+
+        URL url = new URL(API_URL);
+        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
+        connection.setRequestMethod("POST");
+        connection.setRequestProperty("Authorization", "Bearer " + SECRET_KEY);
+        connection.setRequestProperty("Content-Type", "application/json");
+        connection.setDoOutput(true);
+
+        try (OutputStream os = connection.getOutputStream()) {
+            os.write(jsonBody.getBytes("utf-8"));
+        }
+
+        int responseCode = connection.getResponseCode();
+        if (responseCode == 200) {
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream()))) {
+                StringBuilder responseContent = new StringBuilder();
+                String inputLine;
+                while ((inputLine = in.readLine()) != null) {
+                    responseContent.append(inputLine);
+                }
+                JSONObject jsonResponse = new JSONObject(responseContent.toString());
+                return jsonResponse.getJSONArray("choices")
+                        .getJSONObject(0)
+                        .getJSONObject("message")
+                        .getString("content");
+            }
+        } else {
+            throw new IOException("Fehler bei der OpenAI-Anfrage: HTTP " + responseCode);
+        }
+    }
+
+    private void sendErrorResponse(HttpServletResponse response, int statusCode, String message) throws IOException {
+        response.setContentType("application/json;charset=UTF-8");
+        response.setStatus(statusCode);
+        JSONObject errorJson = new JSONObject();
+        errorJson.put("error", message);
+        response.getWriter().write(errorJson.toString());
+    }
+
+    private boolean saveChatLog(String userId, String inputMessage, String generatedOutput, String modelUsed) {
+        Logger logger = Logger.getLogger(ChatController.class.getName());
+        logger.info("Versuche, Chat-Log zu speichern: userId=" + userId + ", inputMessage=" + inputMessage + ", generatedOutput=" + generatedOutput + ", modelUsed=" + modelUsed);
+        try (Connection connection = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+             PreparedStatement preparedStatement = connection.prepareStatement(
+                     "INSERT INTO chat_logs (user_id, input_message, generated_output, model_used) VALUES (?, ?, ?, ?)")) {
+
+            preparedStatement.setString(1, userId);
+            preparedStatement.setString(2, inputMessage);
+            preparedStatement.setString(3, generatedOutput);
+            preparedStatement.setString(4, modelUsed);
+            int rowsAffected = preparedStatement.executeUpdate();
+
+            if (rowsAffected == 1) {
+                logger.info("Datenbankeintrag erfolgreich.");
+                return true; // Erfolg
+            } else {
+                logger.severe("Fehler beim Speichern des Chat-Logs: Betroffene Zeilen: " + rowsAffected);
+                return false; // Fehler
+            }
+
         } catch (SQLException e) {
+            logger.severe("Fehler beim Speichern des Chat-Logs: " + e.getMessage());
             e.printStackTrace();
+            return false; // Fehler
         }
     }
 }
-
 
 
 

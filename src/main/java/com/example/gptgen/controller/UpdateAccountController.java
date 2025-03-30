@@ -8,7 +8,7 @@ import java.sql.*;
 import org.mindrot.jbcrypt.BCrypt;
 
 @WebServlet("/updateAccount")
-public class UpdateAccountServlet extends HttpServlet {
+public class UpdateAccountController extends HttpServlet {
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         HttpSession session = request.getSession();
         String username = (String) session.getAttribute("username");

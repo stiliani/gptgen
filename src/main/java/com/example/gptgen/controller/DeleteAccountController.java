@@ -7,7 +7,7 @@ import java.io.IOException;
 import java.sql.*;
 
 @WebServlet("/deleteAccount")
-public class DeleteAccountServlet extends HttpServlet {
+public class DeleteAccountController extends HttpServlet {
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         HttpSession session = request.getSession();
         String username = (String) session.getAttribute("username");
