@@ -12,25 +12,15 @@ import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
-/**
- * Controller class responsible for handling code compilation and execution requests.
- * This class receives Java code via HTTP POST, compiles the code, executes it, and returns the results.
- */
 @WebServlet("/compile")
 public class CompileController extends HttpServlet {
 
-    /**
-     * Processes HTTP POST requests for code compilation and execution.
-     * @param request The HTTP request containing the code to compile.
-     * @param response The HTTP response to send back the result.
-     * @throws ServletException If an error occurs during request processing.
-     * @throws IOException If an I/O error occurs during request or response handling.
-     */
     protected void doPost(HttpServletRequest request, HttpServletResponse response) throws ServletException, IOException {
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
 
-        // Receive the JSON body of the request
+        long startTime = System.currentTimeMillis(); // Startzeit erfassen
+
         BufferedReader reader = request.getReader();
         StringBuilder sb = new StringBuilder();
         String line;
@@ -38,28 +28,20 @@ public class CompileController extends HttpServlet {
             sb.append(line);
         }
 
-        System.out.println("Received JSON: " + sb.toString()); // Log the received JSON
-
-        // Parse the JSON text
         JsonObject jsonRequest = JsonParser.parseString(sb.toString()).getAsJsonObject();
-        String code = jsonRequest.get("code").getAsString(); // Extract the code from the JSON
+        String code = jsonRequest.get("code").getAsString();
 
-        System.out.println("Extracted Code: " + code); // Log the extracted code
-
-        // Extract the class name from the code (searches for the first public class)
         String className = extractClassName(code);
         if (className == null) {
             response.getWriter().write(new Gson().toJson(Map.of("message", "Error: No public class found.")));
             return;
         }
 
-        // Create a temporary file with the correct class name (e.g., Main.java)
         File tempFile = new File(getServletContext().getRealPath("/" + className + ".java"));
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(tempFile))) {
-            writer.write(code);   // Write the code to the file
+            writer.write(code);
         }
 
-        // Compile the code
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
         StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, null, null);
@@ -68,58 +50,49 @@ public class CompileController extends HttpServlet {
 
         boolean success = task.call();
 
-        // Return the compilation results
+        long endTime = System.currentTimeMillis(); // Endzeit erfassen
+        long compilationTime = endTime - startTime; // Dauer berechnen
+
+        System.out.println("XXXXXXXX Kompilierungszeit (ms): " + compilationTime);
+
         Map<String, Object> result = new HashMap<>();
         if (success) {
             result.put("message", "Kompilierung erfolgreich!");
-            // Execute the code
+            result.put("compilationTime", compilationTime); // Zeit hinzufügen
             String executionResult = executeCode(className, getServletContext().getRealPath("/"));
             result.put("executionResult", executionResult);
-
         } else {
             StringBuilder errorMessages = new StringBuilder("Kompilierungsfehler:\n");
             for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
-                errorMessages.append(diagnostic.getMessage(null)).append("\n");
+                long lineNumber = diagnostic.getLineNumber();
+                long columnNumber = diagnostic.getColumnNumber();
+                String errorMessage = diagnostic.getMessage(null);
+                errorMessages.append("Zeile ").append(lineNumber).append(", Spalte ").append(columnNumber).append(": ").append(errorMessage).append("\n");
             }
             result.put("message", errorMessages.toString());
+            result.put("compilationTime", compilationTime); // Zeit hinzufügen
         }
 
-        // Send the response as JSON
         response.getWriter().write(new Gson().toJson(result));
     }
 
-    /**
-     * Extracts the class name from the provided Java code.
-     * @param code The Java code to extract the class name from.
-     * @return The class name, or null if no public class is found.
-     */
     private String extractClassName(String code) {
         String classPattern = "public class (\\w+)";
         java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(classPattern);
         java.util.regex.Matcher matcher = pattern.matcher(code);
 
         if (matcher.find()) {
-            return matcher.group(1); // Return the class name
+            return matcher.group(1);
         }
-        return null; // If no public class is found
+        return null;
     }
 
-    /**
-     * Executes the compiled Java code using a process builder.
-     * @param className The name of the class to execute.
-     * @param path The directory to execute the code in.
-     * @return The output of the execution as a string.
-     * @throws IOException If an I/O error occurs while executing the code.
-     */
-    private String executeCode(String className, String path) throws IOException{
-        System.out.println("XXX Preparing to execute the compiled code for class: " + className);
-
+    private String executeCode(String className, String path) throws IOException {
         ProcessBuilder processBuilder = new ProcessBuilder("java", className);
         processBuilder.directory(new File(path));
 
         Process process = processBuilder.start();
 
-        // Read the output of the process
         BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
         String line;
         StringBuilder output = new StringBuilder();
@@ -129,5 +102,4 @@ public class CompileController extends HttpServlet {
         return output.toString();
     }
 }
-
 

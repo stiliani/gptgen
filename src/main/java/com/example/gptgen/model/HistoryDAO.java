@@ -83,5 +83,31 @@ public class HistoryDAO {
             entityManager.close();
         }
     }
+
+    /**
+     * Method to delete all history entries for a specific user by user ID.
+     * @param userId The ID of the user whose history entries are to be deleted.
+     */
+    public void deleteHistoriesByUserId(Long userId) {
+        System.out.println("XXX Deleting history entries for user ID: " + userId);
+        EntityManager entityManager = entityManagerFactory.createEntityManager();
+        EntityTransaction transaction = entityManager.getTransaction();
+        try {
+            transaction.begin();
+            String query = "DELETE FROM History h WHERE h.userId = :userId";
+            Query deleteQuery = entityManager.createQuery(query);
+            deleteQuery.setParameter("userId", userId);
+            deleteQuery.executeUpdate();
+            transaction.commit();
+        } catch (Exception e) {
+            if (transaction.isActive()) {
+                transaction.rollback();
+            }
+            System.out.println("XXX Error deleting history entries for user ID: " + userId);
+            e.printStackTrace();
+        } finally {
+            entityManager.close();
+        }
+    }
 }
 

@@ -188,14 +188,12 @@
   <h1>JavaGen - History of Prompts</h1>
 
   <div class="container">
-    <!-- Check if there is a list of history -->
     <c:if test="${not empty historyList}">
       <table>
         <thead>
         <tr>
           <th>Prompt</th>
           <th>Response</th>
-          <th>Aktion</th>
         </tr>
         </thead>
         <tbody>
@@ -204,39 +202,29 @@
             <td>${history.prompt}</td>
             <td>
               <div class="response-container">
-                  <%-- Remove markdown code blocks from the response --%>
                 <c:set var="cleanResponse" value="${fn:replace(fn:replace(history.response, '```java', ''), '```', '')}" />
                 <c:choose>
                   <c:when test="${fn:contains(history.response, '```java')}">
-                    <%-- If the response contains Java code, format it as a code block --%>
                     <pre><code class="java">${fn:escapeXml(cleanResponse)}</code></pre>
                   </c:when>
                   <c:otherwise>
-                    <%-- If it is not Java code, display it as normal text --%>
                     <p>${fn:escapeXml(cleanResponse)}</p>
                   </c:otherwise>
                 </c:choose>
               </div>
-            </td>
-            <td class="action-column">
-              <!-- Delete button with confirmation prompt -->
-              <button onclick="confirmDelete(${history.id}, event)">Löschen</button>
             </td>
           </tr>
         </c:forEach>
         </tbody>
       </table>
     </c:if>
-  </div>
 
-    <!-- Display message if no entries are found -->
     <c:if test="${empty historyList}">
       <p class="message">No history entries found for this user.</p>
     </c:if>
   </div>
 
   <script>
-
     // Show a confirmation prompt before deleting an entry
     function confirmDelete(promptid, event) {
       if (confirm('Wirklich löschen?')) {
